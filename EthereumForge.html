@@ -1,0 +1,585 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>以太熔炉 - 奇幻装备图标引擎 v5.5</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Noto+Serif+SC:wght@400;700&display=swap');
+        body {
+            font-family: 'Noto Serif SC', serif;
+            background-color: #0d0d0f;
+            color: #d1c7a7;
+            overflow-x: hidden;
+        }
+        .gold-border {
+            border: 1px solid #4a3721;
+            box-shadow: 0 0 15px rgba(0, 0, 0, 0.5);
+        }
+        .glass-panel {
+            background: linear-gradient(145deg, #1a1a1e 0%, #121215 100%);
+            border: 1px solid #2a2a2e;
+        }
+
+        /* 稀有度颜色 */
+        .rarity-传说 { color: #ff8000; text-shadow: 0 0 12px rgba(255,128,0,0.6); }
+        .rarity-史诗 { color: #a335ee; text-shadow: 0 0 8px rgba(163,53,238,0.5); }
+        .rarity-稀有, .rarity-精良 { color: #0070dd; text-shadow: 0 0 8px rgba(0,112,221,0.5); }
+        .rarity-优秀 { color: #1eff00; text-shadow: 0 0 8px rgba(30,255,0,0.5); }
+        .rarity-普通 { color: #ffffff; }
+        .rarity-劣质, .rarity-垃圾 { color: #9d9d9d; }
+
+        .legendary-frame {
+            border: 2px solid #ff8000;
+            position: relative;
+            box-shadow: 0 0 20px rgba(255,128,0,0.4);
+            animation: legendaryPulse 2.5s infinite alternate;
+        }
+        @keyframes legendaryPulse {
+            0% { box-shadow: 0 0 8px rgba(255,128,0,0.3); border-color: #8e5a1d; }
+            100% { box-shadow: 0 0 25px rgba(255,180,0,0.7); border-color: #ffcc00; }
+        }
+
+        .drop-zone {
+            border: 2px dashed #333;
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+        .drop-zone:hover {
+            border-color: #8e6d3d;
+            background: rgba(142, 109, 61, 0.05);
+        }
+
+        .tab-btn {
+            transition: all 0.3s;
+            border-left: 3px solid transparent;
+        }
+        .tab-btn.active {
+            background: linear-gradient(90deg, rgba(142, 109, 61, 0.2) 0%, rgba(0,0,0,0) 100%);
+            border-left-color: #fbbf24;
+            color: #fbbf24;
+        }
+
+        .custom-scrollbar::-webkit-scrollbar { width: 4px; }
+        .custom-scrollbar::-webkit-scrollbar-track { background: #08080a; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: #333; border-radius: 10px; }
+
+        .modal-enter { animation: modalIn 0.35s cubic-bezier(0.34, 1.56, 0.64, 1); }
+        @keyframes modalIn {
+            from { opacity: 0; transform: scale(0.9) translateY(20px); }
+            to { opacity: 1; transform: scale(1) translateY(0); }
+        }
+    </style>
+</head>
+<body class="min-h-screen p-4 md:p-8">
+    <div class="max-w-[1600px] mx-auto">
+        <header class="flex flex-col md:flex-row justify-between items-start md:items-center mb-8 gap-4 border-b border-yellow-900/20 pb-6">
+            <div>
+                <h1 class="text-4xl font-bold bg-gradient-to-r from-yellow-700 via-yellow-200 to-yellow-600 bg-clip-text text-transparent">
+                    以太熔炉 <span class="text-sm font-normal text-yellow-800 ml-2 tracking-widest uppercase">图标生成引擎 v5.5</span>
+                </h1>
+                <p class="text-gray-500 text-xs mt-1 uppercase tracking-[0.3em]">精准 ID 注入系统</p>
+            </div>
+            <div id="globalStatus" class="flex items-center gap-3 bg-black/40 px-4 py-2 rounded-full border border-yellow-900/30">
+                <span class="w-2 h-2 bg-green-500 rounded-full animate-pulse"></span>
+                <span id="statusText" class="text-[10px] text-yellow-700 font-mono uppercase tracking-widest">核心引擎: Imagen 4.0 已就绪</span>
+            </div>
+        </header>
+
+        <div class="grid grid-cols-1 lg:grid-cols-12 gap-8">
+            <div class="lg:col-span-3 space-y-6">
+                <section class="glass-panel p-5 rounded-xl gold-border">
+                    <h2 class="text-xs font-bold mb-4 text-yellow-600 uppercase tracking-widest flex items-center">
+                        <span class="mr-2">📜</span> 档案浏览器
+                    </h2>
+                    <div id="dropZone" class="drop-zone p-6 rounded-lg text-center cursor-pointer mb-5 group">
+                        <p class="text-[11px] text-gray-500 group-hover:text-yellow-200 transition">拖放蓝图 (CSV/Excel)</p>
+                        <input type="file" id="fileInput" class="hidden" accept=".xlsx, .xls, .csv" multiple>
+                    </div>
+                    <div id="tabContainer" class="space-y-1.5 max-h-[240px] overflow-y-auto custom-scrollbar pr-1"></div>
+                </section>
+
+                <section class="glass-panel p-5 rounded-xl gold-border">
+                    <h2 class="text-xs font-bold mb-5 text-yellow-600 uppercase tracking-widest flex items-center">
+                        <span class="mr-2">🔮</span> 熔炼参数
+                    </h2>
+                    <div class="space-y-5 text-[11px]">
+                        <div>
+                            <label class="block mb-2 text-gray-500 uppercase tracking-tighter">艺术范式</label>
+                            <select id="styleSelect" class="w-full bg-black/60 border border-gray-800 rounded-lg p-3 text-yellow-100 focus:border-yellow-600 outline-none transition">
+                                <option value="Blizzard World of Warcraft icon style, hand-painted digital art, bold heavy outlines, magical glowing edges, high contrast, stylized fantasy" selected>魔兽世界风格 (手绘)</option>
+                                <option value="Diablo 4 concept art style, dark gothic fantasy, realistic textures, muted colors, gritty, sharp hyper-details">暗黑破坏神 IV (写实)</option>
+                                <option value="League of Legends splash art item style, vibrant neon energy, dynamic lighting">英雄联盟 (酷炫)</option>
+                                <option value="Pixel art, 16-bit RPG style, clean dithered colors">怀旧像素 (16-bit)</option>
+                            </select>
+                        </div>
+
+                        <div class="grid grid-cols-2 gap-3">
+                            <div>
+                                <label class="block mb-2 text-gray-500 uppercase tracking-tighter">分辨率</label>
+                                <select id="sizeSelect" class="w-full bg-black/60 border border-gray-800 rounded-lg p-3 text-white focus:border-yellow-600 outline-none">
+                                    <option value="64x64">64 px</option>
+                                    <option value="128x128" selected>128 px</option>
+                                    <option value="256x256">256 px</option>
+                                    <option value="512x512">512 px</option>
+                                    <option value="1024x1024">1024 px</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label class="block mb-2 text-gray-500 uppercase tracking-tighter">背景氛围</label>
+                                <select id="bgModeSelect" class="w-full bg-black/60 border border-gray-800 rounded-lg p-3 text-white focus:border-yellow-600 outline-none">
+                                    <option value="DYNAMIC" selected>✨ 动态品质分级色</option>
+                                    <option value="SOLID_BLACK">纯粹幽黑</option>
+                                    <option value="SOLID_WHITE">神圣苍白</option>
+                                </select>
+                            </div>
+                        </div>
+
+                        <div class="pt-4 border-t border-gray-800 flex flex-col gap-3">
+                            <button onclick="document.getElementById('batchPromptModal').classList.remove('hidden')" class="w-full py-3 bg-yellow-600 hover:bg-yellow-500 text-black rounded-lg font-black border border-yellow-900/20 transition text-[10px] uppercase tracking-widest">
+                                📝 批量注入提示词 (按 ID)
+                            </button>
+                            <button id="batchAIRewriteBtn" onclick="batchRewritePromptsWithAI()" class="w-full py-3 bg-indigo-950/20 hover:bg-indigo-900/40 text-indigo-400 rounded-lg border border-indigo-900/30 transition text-[10px] font-bold">
+                                🪄 AI 批量重新构思
+                            </button>
+                            <button id="rebuildAIBtn" onclick="rebuildPromptsFromTemplate()" class="w-full py-3 bg-gray-900 hover:bg-gray-800 text-yellow-800 rounded-lg border border-yellow-950/5 transition text-[10px]">
+                                🔄 还原模板指令
+                            </button>
+                        </div>
+                    </div>
+                </section>
+            </div>
+
+            <div class="lg:col-span-9 space-y-6">
+                <section class="glass-panel p-6 rounded-xl gold-border min-h-[800px] flex flex-col relative overflow-hidden">
+                    <div class="flex flex-col md:flex-row justify-between items-start md:items-center mb-8 gap-6 z-10">
+                        <div class="flex-1">
+                            <h2 id="currentTaskTitle" class="text-2xl font-bold text-gray-100 italic tracking-tight">等待蓝图注入</h2>
+                            <p id="currentTaskCount" class="text-[10px] text-yellow-700 uppercase tracking-[0.2em] mt-2 font-mono"></p>
+                        </div>
+                        <div class="flex flex-wrap gap-3 w-full md:w-auto">
+                            <button id="downloadAllBtn" onclick="downloadAllAsZip()" class="flex-1 md:flex-none bg-black/60 hover:bg-gray-800 text-yellow-500 px-6 py-3 rounded-lg font-bold text-[10px] border border-yellow-900/20 transition disabled:opacity-20" disabled>
+                                📦 打包下载 ZIP
+                            </button>
+                            <button id="batchBtn" class="flex-1 md:flex-none bg-gradient-to-br from-yellow-600 to-yellow-900 hover:from-yellow-500 hover:to-yellow-800 text-black px-12 py-3 rounded-lg shadow-2xl font-black text-xs disabled:opacity-20 tracking-[0.2em] transition-all uppercase" disabled>
+                                开启批量锻造
+                            </button>
+                        </div>
+                    </div>
+
+                    <div id="progressContainer" class="w-full bg-black/80 h-1.5 rounded-full mb-8 hidden border border-gray-800 overflow-hidden">
+                        <div id="progressBar" class="bg-gradient-to-r from-yellow-800 via-yellow-400 to-yellow-800 h-full w-0 transition-all duration-700 shadow-[0_0_15px_rgba(251,191,36,0.4)]"></div>
+                    </div>
+
+                    <div id="equipmentGrid" class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-5 gap-6 overflow-y-auto max-h-[700px] p-2 pr-4 custom-scrollbar z-10">
+                        <div class="col-span-full py-56 text-center">
+                            <p class="text-gray-700 font-serif italic text-xl">将蓝图卷轴投入左侧熔炉...</p>
+                        </div>
+                    </div>
+                </section>
+            </div>
+        </div>
+    </div>
+
+    <!-- 编辑弹窗 -->
+    <div id="editModal" class="fixed inset-0 bg-black/98 z-[100] hidden flex items-center justify-center p-6 backdrop-blur-xl">
+        <div class="glass-panel gold-border p-10 rounded-2xl w-full max-w-3xl modal-enter relative">
+             <button onclick="closeEditModal()" class="absolute top-6 right-6 text-gray-600 hover:text-white transition text-2xl">✕</button>
+            <div class="flex flex-col md:flex-row gap-12">
+                <div class="w-full md:w-1/2 flex flex-col items-center">
+                    <div id="editPreviewContainer" class="w-full aspect-square bg-black rounded-xl overflow-hidden flex items-center justify-center mb-6 shadow-2xl border border-white/5 relative">
+                        <img id="editImg" class="w-full h-full object-cover hidden">
+                        <div id="editPlaceholder" class="text-gray-900 text-7xl font-serif">?</div>
+                        <div id="editLoadingOverlay" class="absolute inset-0 bg-black/80 hidden flex-col items-center justify-center">
+                            <div class="w-12 h-12 border-4 border-yellow-600 border-t-transparent rounded-full animate-spin mb-4"></div>
+                            <span class="text-[10px] text-yellow-600 font-mono animate-pulse">正在注入以太...</span>
+                        </div>
+                    </div>
+                    <div class="grid grid-cols-2 gap-4 w-full">
+                        <button id="reforgeBtn" class="py-4 bg-yellow-700 hover:bg-yellow-600 text-black font-black rounded-xl shadow-lg transition text-xs uppercase tracking-widest">单独重铸</button>
+                        <button id="singleDownloadBtn" class="py-4 bg-gray-900 text-yellow-500 font-bold rounded-xl border border-yellow-900/20 hover:bg-gray-800 transition text-xs">导出 PNG</button>
+                    </div>
+                </div>
+                <div class="w-full md:w-1/2 space-y-6">
+                    <header class="border-b border-gray-800 pb-4">
+                        <h3 id="editName" class="text-3xl font-bold tracking-tight"></h3>
+                        <p id="editRarity" class="text-[10px] tracking-[0.4em] uppercase mt-2 font-mono"></p>
+                    </header>
+                    <div class="space-y-6">
+                        <div>
+                            <label class="block text-[9px] text-gray-600 uppercase mb-2 tracking-widest font-bold">传说背景</label>
+                            <div class="bg-black/40 p-4 rounded-lg border border-gray-900">
+                                <p id="editDesc" class="text-xs text-gray-400 italic leading-relaxed max-h-24 overflow-y-auto custom-scrollbar"></p>
+                            </div>
+                        </div>
+                        <div>
+                            <label class="block text-[9px] text-yellow-800 uppercase mb-3 font-black tracking-[0.2em]">视觉指令 (Prompt)</label>
+                            <textarea id="editPromptInput" class="w-full h-48 bg-black/60 border border-gray-800 rounded-xl p-4 text-xs text-yellow-100 outline-none focus:border-yellow-600 transition custom-scrollbar font-mono"></textarea>
+                        </div>
+                    </div>
+                    <div class="flex justify-end gap-3 pt-4">
+                        <button id="savePromptBtn" class="px-8 py-3 bg-yellow-950/30 text-yellow-500 border border-yellow-900/30 font-bold text-[10px] rounded-lg hover:bg-yellow-900/50 transition tracking-widest uppercase">保存修改</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 批量注入弹窗 -->
+    <div id="batchPromptModal" class="fixed inset-0 bg-black/95 z-[60] hidden flex items-center justify-center p-6 backdrop-blur-md">
+        <div class="glass-panel gold-border p-8 rounded-2xl w-full max-w-2xl modal-enter">
+            <h3 class="text-yellow-600 font-black mb-2 tracking-widest uppercase text-sm">📝 批量注入指令</h3>
+            <p class="text-[9px] text-gray-500 mb-4 uppercase tracking-tighter italic">支持格式: ID, 名称, "提示词" (按 ID 精准匹配)</p>
+            <textarea id="batchPromptInput" class="w-full h-80 bg-black/60 border border-gray-800 rounded-xl p-5 text-xs text-yellow-100 custom-scrollbar outline-none focus:border-yellow-600 font-mono" placeholder='1,啄击,"[WoW Icon], raven-themed crossbow..."'></textarea>
+            <div class="flex justify-end gap-4 mt-8">
+                <button onclick="document.getElementById('batchPromptModal').classList.add('hidden')" class="px-8 py-3 text-[10px] text-gray-500 hover:text-white transition uppercase font-bold">放弃</button>
+                <button id="confirmBatchPrompt" class="px-10 py-3 bg-yellow-600 hover:bg-yellow-500 text-black font-black text-[10px] rounded-lg transition uppercase tracking-widest">确认注入数据</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const apiKey = "";
+        let taskQueue = {};
+        let currentFileName = null;
+        let activeEditIndex = null;
+
+        const qualityEnglishMap = { "劣质": "Poor", "垃圾": "Poor", "普通": "Normal", "优秀": "Excellent", "精良": "Rare", "稀有": "Rare", "史诗": "Epic", "传说": "Legendary", "传承": "Legendary" };
+
+        const qualityBackgroundMap = {
+            "传说": "magnificent golden aura, glowing embers, fiery molten particles, ornate gold filigree, divine light rays, legendary radiance, masterpiece background",
+            "史诗": "deep ethereal purple void, swirling magical energy, mystical smoke, pulsating violet runes, epic arcane atmosphere",
+            "精良": "crystalline blue frost, cold magic mist, sharp azure sparks, flowing water energy, rare blue glow",
+            "稀有": "crystalline blue frost, cold magic mist, sharp azure sparks, flowing water energy, rare blue glow",
+            "优秀": "vibrant forest green glow, emerald leaf particles, nature energy, organic growth textures, uncommon green light",
+            "普通": "clean simple studio lighting, soft neutral gray and white gradient, minimalist background, standard quality",
+            "垃圾": "dark grungy gray background, rusty metal dust, broken fragments, dull lighting, poor decayed textures",
+            "劣质": "dark grungy gray background, rusty metal dust, broken fragments, dull lighting, poor decayed textures"
+        };
+
+        function generateAIPrompt(name, explain, rarity, size = "512x512") {
+            const bgMode = document.getElementById('bgModeSelect').value;
+            let bgPrompt = bgMode === "DYNAMIC" ? (qualityBackgroundMap[rarity] || qualityBackgroundMap["普通"]) : (bgMode === "SOLID_BLACK" ? "solid pure black background" : "solid pure white background");
+            return `Professional fantasy game asset of ${name}, centered single object, clean composition, background is ${bgPrompt}, volumetric lighting, highly detailed textures, Blizzard icon style.`;
+        }
+
+        const dropZone = document.getElementById('dropZone');
+        const fileInput = document.getElementById('fileInput');
+        const tabContainer = document.getElementById('tabContainer');
+        const equipmentGrid = document.getElementById('equipmentGrid');
+        const taskTitle = document.getElementById('currentTaskTitle');
+        const taskCountDisplay = document.getElementById('currentTaskCount');
+        const batchBtn = document.getElementById('batchBtn');
+        const downloadAllBtn = document.getElementById('downloadAllBtn');
+        const progressBar = document.getElementById('progressBar');
+        const progressContainer = document.getElementById('progressContainer');
+        const styleSelect = document.getElementById('styleSelect');
+        const sizeSelect = document.getElementById('sizeSelect');
+        const statusText = document.getElementById('statusText');
+
+        function getFormattedFileName(item, index) {
+            const excelBaseName = currentFileName ? currentFileName.split('[')[0].replace(/\.[^/.]+$/, "") : "Artifact";
+            const qualityEng = qualityEnglishMap[item.rarity] || "Normal";
+            return `${excelBaseName}_${qualityEng}_${index + 1}`;
+        }
+
+        function downloadImage(dataUrl, filename) {
+            const link = document.createElement('a');
+            link.href = dataUrl;
+            link.download = filename + ".png";
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+        }
+
+        async function downloadAllAsZip() {
+            if (!currentFileName) return;
+            const zip = new JSZip();
+            const items = taskQueue[currentFileName].items.filter(i => i.img);
+            if (items.length === 0) return;
+            statusText.innerText = "正在卷轴打包中...";
+            const folderName = currentFileName.replace(/\.[^/.]+$/, "").split('[')[0];
+            const imgFolder = zip.folder(folderName);
+            items.forEach((item, index) => {
+                const fileName = getFormattedFileName(item, index) + ".png";
+                imgFolder.file(fileName, item.img.split(',')[1], {base64: true});
+            });
+            const content = await zip.generateAsync({type: "blob"});
+            const link = document.createElement('a');
+            link.href = URL.createObjectURL(content);
+            link.download = `${folderName}_图标包.zip`;
+            link.click();
+            statusText.innerText = "核心引擎: Imagen 4.0 已就绪";
+        }
+
+        function handleFiles(files) {
+            for (let file of files) {
+                const reader = new FileReader();
+                reader.onload = (e) => {
+                    const data = new Uint8Array(e.target.result);
+                    const workbook = XLSX.read(data, { type: 'array' });
+                    workbook.SheetNames.forEach(sheetName => {
+                        const json = XLSX.utils.sheet_to_json(workbook.Sheets[sheetName]);
+                        const key = `${file.name}${workbook.SheetNames.length > 1 ? `[${sheetName}]` : ''}`;
+                        taskQueue[key] = {
+                            items: json.map((row, index) => {
+                                const name = row['Name_CN'] || row['装备名称 (CN)'] || row['名称'] || row['Name'] || '古代遗物';
+                                const rarity = row['Rarity'] || row['稀有度'] || '普通';
+                                return {
+                                    name: name.toString().trim(),
+                                    rarity,
+                                    explain: row['Explain'] || row['描述'] || '',
+                                    img: null,
+                                    customPrompt: generateAIPrompt(name, '', rarity, sizeSelect.value)
+                                };
+                            })
+                        };
+                    });
+                    renderTabs();
+                    if (!currentFileName) switchTask(Object.keys(taskQueue)[0]);
+                };
+                reader.readAsArrayBuffer(file);
+            }
+        }
+
+        function switchTask(key) {
+            currentFileName = key;
+            taskTitle.innerText = key;
+            taskCountDisplay.innerText = `等待锻造: ${taskQueue[key].items.length}`;
+            renderGrid(); renderTabs();
+            batchBtn.disabled = false; updateDownloadBtnState();
+        }
+
+        function updateDownloadBtnState() {
+            if (currentFileName) downloadAllBtn.disabled = !taskQueue[currentFileName].items.some(i => i.img);
+        }
+
+        function renderGrid() {
+            if(!currentFileName) return;
+            equipmentGrid.innerHTML = '';
+            taskQueue[currentFileName].items.forEach((item, index) => {
+                const card = document.createElement('div');
+                card.className = "item-card bg-[#0f0f12] border border-gray-900 rounded-xl p-3 flex flex-col group cursor-pointer";
+                card.onclick = () => openEditModal(index);
+                card.innerHTML = `
+                    <div class="w-full aspect-square bg-black rounded-lg mb-3 flex items-center justify-center overflow-hidden relative ${item.rarity === '传说' ? 'legendary-frame' : 'border border-gray-800/50'}">
+                        <div class="absolute top-1 left-1 bg-black/60 text-[8px] px-1 rounded text-gray-500 z-10 font-mono">${index + 1}</div>
+                        ${item.img ? `<img src="${item.img}" class="w-full h-full object-cover">` : '<span class="text-gray-900 text-5xl">?</span>'}
+                    </div>
+                    <div class="px-1"><p class="font-bold truncate text-[11px] rarity-${item.rarity}">${item.name}</p><p class="text-gray-700 text-[8px] uppercase">${item.rarity}</p></div>
+                `;
+                equipmentGrid.appendChild(card);
+            });
+            updateDownloadBtnState();
+        }
+
+        function openEditModal(index) {
+            activeEditIndex = index;
+            const item = taskQueue[currentFileName].items[index];
+            document.getElementById('editName').innerText = item.name;
+            document.getElementById('editName').className = `text-3xl font-bold rarity-${item.rarity}`;
+            document.getElementById('editRarity').innerText = item.rarity;
+            document.getElementById('editDesc').innerText = item.explain;
+            document.getElementById('editPromptInput').value = item.customPrompt || '';
+            const img = document.getElementById('editImg');
+            const placeholder = document.getElementById('editPlaceholder');
+            const dlBtn = document.getElementById('singleDownloadBtn');
+            if (item.img) {
+                img.src = item.img; img.classList.remove('hidden'); placeholder.classList.add('hidden');
+                dlBtn.onclick = () => downloadImage(item.img, getFormattedFileName(item, index));
+                dlBtn.classList.remove('opacity-20', 'pointer-events-none');
+            } else {
+                img.classList.add('hidden'); placeholder.classList.remove('hidden');
+                dlBtn.classList.add('opacity-20', 'pointer-events-none');
+            }
+            document.getElementById('editModal').classList.remove('hidden');
+        }
+
+        function parseCSVLineRobust(text) {
+            const fields = [];
+            let currentField = '';
+            let inQuotes = false;
+            for (let i = 0; i < text.length; i++) {
+                const char = text[i];
+                if (char === '"') {
+                    if (inQuotes && text[i+1] === '"') { currentField += '"'; i++; }
+                    else { inQuotes = !inQuotes; }
+                } else if (char === ',' && !inQuotes) {
+                    fields.push(currentField.trim());
+                    currentField = '';
+                } else { currentField += char; }
+            }
+            fields.push(currentField.trim());
+            return fields;
+        }
+
+        /** * 批量注入逻辑 - 优先 ID 匹配
+         */
+        document.getElementById('confirmBatchPrompt').onclick = () => {
+            if (!currentFileName) return;
+            const input = document.getElementById('batchPromptInput').value;
+            const lines = input.split(/\r?\n/);
+            const items = taskQueue[currentFileName].items;
+            let matchCount = 0;
+
+            lines.forEach(line => {
+                if (!line.trim()) return;
+                const parts = parseCSVLineRobust(line);
+                if (parts.length < 2) return;
+
+                const idCandidate = parts[0];
+                const nameCandidate = parts[1];
+                const promptCandidate = parts[parts.length - 1]; // 假设最后一列总是提示词
+
+                let matched = false;
+
+                // 1. 优先尝试 ID 匹配 (序号)
+                const idNum = parseInt(idCandidate);
+                if (!isNaN(idNum) && items[idNum - 1]) {
+                    items[idNum - 1].customPrompt = promptCandidate;
+                    matched = true;
+                }
+
+                // 2. 如果 ID 没匹配上，尝试名称匹配
+                if (!matched && nameCandidate) {
+                    const cleanName = nameCandidate.toString().trim();
+                    items.forEach(item => {
+                        if (item.name === cleanName) {
+                            item.customPrompt = promptCandidate;
+                            matched = true;
+                        }
+                    });
+                }
+
+                if (matched) matchCount++;
+            });
+
+            document.getElementById('batchPromptModal').classList.add('hidden');
+            renderGrid();
+            statusText.innerText = `注入完成: 已根据 ID/名称 更新 ${matchCount} 个提示词`;
+            setTimeout(() => statusText.innerText = "核心引擎: Imagen 4.0 已就绪", 3000);
+        };
+
+        async function batchRewritePromptsWithAI() {
+            if (!currentFileName) return;
+            const items = taskQueue[currentFileName].items;
+            const btn = document.getElementById('batchAIRewriteBtn');
+            const originalText = btn.innerText;
+            btn.disabled = true;
+            btn.innerText = "🧠 AI 深度构思中...";
+            statusText.innerText = "正在链接 Gemini 2.5 构思提示词...";
+
+            try {
+                const listStr = items.map((item, i) => `[${i}] Name: ${item.name}, Rarity: ${item.rarity}, Desc: ${item.explain}`).join('\n');
+                const systemPrompt = `You are a professional AI art prompter. Create high-quality, detailed English visual prompts for fantasy game icons.
+                Output format: Return ONLY a JSON object where keys are the indices provided (e.g. "0", "1") and values are the generated English prompt strings.
+                Style: ${styleSelect.value}. Background: Follow rarity themes.`;
+
+                const response = await fetchWithRetry(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        contents: [{ parts: [{ text: `Create fantasy icon prompts for these:\n${listStr}` }] }],
+                        systemInstruction: { parts: [{ text: systemPrompt }] },
+                        generationConfig: { responseMimeType: "application/json" }
+                    })
+                });
+
+                const resultText = response.candidates?.[0]?.content?.parts?.[0]?.text;
+                if (resultText) {
+                    const promptMap = JSON.parse(resultText);
+                    Object.entries(promptMap).forEach(([index, newPrompt]) => {
+                        const idx = parseInt(index);
+                        if (items[idx]) items[idx].customPrompt = newPrompt;
+                    });
+                    renderGrid();
+                    statusText.innerText = "AI 指令重写完成";
+                }
+            } catch (err) {
+                statusText.innerText = "AI 链接中断";
+            } finally {
+                btn.disabled = false;
+                btn.innerText = originalText;
+                setTimeout(() => statusText.innerText = "核心引擎: Imagen 4.0 已就绪", 3000);
+            }
+        }
+
+        async function forgeSingleItem(fileKey, index) {
+            const item = taskQueue[fileKey].items[index];
+            const finalPrompt = `${item.customPrompt}. Visual paradigm: ${styleSelect.value}. Optimized for ${sizeSelect.value}.`;
+            const result = await fetchWithRetry(`https://generativelanguage.googleapis.com/v1beta/models/imagen-4.0-generate-001:predict?key=${apiKey}`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ instances: { prompt: finalPrompt }, parameters: { sampleCount: 1 } })
+            });
+            return `data:image/png;base64,${result.predictions[0].bytesBase64Encoded}`;
+        }
+
+        async function fetchWithRetry(url, options, maxRetries = 5) {
+            let delays = [1000, 2000, 4000, 8000, 16000];
+            for (let i = 0; i < maxRetries; i++) {
+                try {
+                    const response = await fetch(url, options);
+                    if (response.ok) return await response.json();
+                } catch (err) {}
+                await new Promise(res => setTimeout(res, delays[i]));
+            }
+            throw new Error("失败");
+        }
+
+        document.getElementById('reforgeBtn').onclick = async () => {
+            const item = taskQueue[currentFileName].items[activeEditIndex];
+            document.getElementById('editLoadingOverlay').classList.remove('hidden');
+            item.customPrompt = document.getElementById('editPromptInput').value;
+            try {
+                item.img = await forgeSingleItem(currentFileName, activeEditIndex);
+                openEditModal(activeEditIndex); renderGrid();
+            } catch (e) {} finally {
+                document.getElementById('editLoadingOverlay').classList.add('hidden');
+            }
+        };
+
+        batchBtn.onclick = async () => {
+            batchBtn.disabled = true; progressContainer.classList.remove('hidden');
+            const items = taskQueue[currentFileName].items;
+            for (let i = 0; i < items.length; i++) {
+                if (items[i].img) continue;
+                progressBar.style.width = `${((i + 1) / items.length) * 100}%`;
+                try {
+                    items[i].img = await forgeSingleItem(currentFileName, i);
+                    renderGrid();
+                } catch (e) {}
+            }
+            batchBtn.disabled = false;
+        };
+
+        document.getElementById('savePromptBtn').onclick = () => {
+            if (activeEditIndex !== null) {
+                taskQueue[currentFileName].items[activeEditIndex].customPrompt = document.getElementById('editPromptInput').value;
+                closeEditModal();
+            }
+        };
+
+        dropZone.onclick = () => fileInput.click();
+        fileInput.onchange = (e) => handleFiles(e.target.files);
+        function closeEditModal() { document.getElementById('editModal').classList.add('hidden'); }
+        function renderTabs() {
+            tabContainer.innerHTML = '';
+            Object.keys(taskQueue).forEach(key => {
+                const btn = document.createElement('button');
+                btn.className = `tab-btn w-full text-left p-3 text-[10px] rounded-lg mb-2 flex justify-between items-center ${currentFileName === key ? 'active' : 'bg-[#151518]'}`;
+                btn.innerHTML = `<span>${key}</span><span>${taskQueue[key].items.length}</span>`;
+                btn.onclick = () => switchTask(key);
+                tabContainer.appendChild(btn);
+            });
+        }
+        function rebuildPromptsFromTemplate() {
+            if(!currentFileName) return;
+            taskQueue[currentFileName].items.forEach(item => item.customPrompt = generateAIPrompt(item.name, item.explain, item.rarity, sizeSelect.value));
+            renderGrid();
+        }
+    </script>
+</body>
+</html>
